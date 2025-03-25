@@ -1,0 +1,8 @@
+- name: Automate Backup with Azure Command
+  ansible.builtin.shell: |
+    az vm run-command invoke \
+      --command-id 'RunShellScript' \
+      --resource-group "{{ lookup('env', 'azure_resource_group') }}" \
+      --name s-{{ lookup('env', 'environment_type') }}-dw-ccc-test-automation-nectar-{{ lookup('env', 'nectar_cx_version') }}-radar-{{ lookup('env', 'ENVIRONMENT') }} \
+      --scripts "/path/to/backup_script.sh {{ lookup('env', 'nectar_cx_version') }}"
+  ignore_errors: yes
