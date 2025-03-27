@@ -1,0 +1,7 @@
+- name: Execute backup PowerShell script on VM
+  ansible.builtin.shell:
+    cmd: az vm run-command invoke --command-id 'RunPowerShellScript' \
+         --resource-group "{{ lookup('env', 'azure_resource_group') }}" \
+         --name s-{{ lookup('env', 'environment_type') }}-dw-ccc-test-automation-nectar-{{ lookup('env', 'nectar_cx_version') }}-radar-{{ lookup('env', 'ENVIRONMENT') }} \
+         --scripts @backup_csv_to_gitlab.ps1
+  ignore_errors: yes
