@@ -1,37 +1,47 @@
-# Parameters
-param(
-    [string]$CsvDir = "F:\Nectar\CXA\liferay-ce-portal-7.4.3.78-ga78\test-case-data", # Directory where .csv files are stored
-    [string]$GitLabApiUrl = "https://gitlab.com/api/v4/projects/2778/repository/files", # Project ID provided
-    [string]$GitLabToken = "nectar_backup", # Provided GitLab token
-    [string]$BranchName = "test-case-data-dev" # Set to "test-case-data-dev" or "test-case-data-live"
-)
+# Exit if any command fails
+$ErrorActionPreference = "Stop"
 
-# Get all .csv files
-$csvFiles = Get-ChildItem -Path $CsvDir -Filter *.csv
+# Static Variables
+$RepoURL = "https://gitlab.com/sasi.uhuk/nectar-backup/-/tree/Test-case-data-dev?ref_type=heads" # GitLab repository URL
+$CommitMessage = "zebra 2025." # Commit message
+$CsvDir = "C/TestCsv" # Directory containing the CSV files
+$PrivateToken = "Nectar_backup" # GitLab personal access token
+$Branch = "test-case-data-dev" # Default branch name
+$ProjectID = 68429798 # GitLab project ID
 
-foreach ($file in $csvFiles) {
-    # Use file name
-    $fileName = $file.Name
+# Navigate to the CSV directory
+Set-Location -Path $CsvDir
 
-    # Build GitLab API URI
-    $apiUri = "$GitLabApiUrl/$($fileName.Replace('\', '/'))?branch=$BranchName"
+# Loop through all .csv files
+Get-ChildItem -Path . -Filter "*.csv" | ForEach-Object {
+    $FilePath = $_.Name
 
-    # Standard commit message
-    $commitMessage = "nectar.2025"
+    # Check if the file exists in the GitLab repository (via GET request)
+    $Response = Invoke-RestMethod -Headers @{ "PRIVATE-TOKEN" = $PrivateToken } -Uri "$RepoURL/api/v4/projects/$ProjectID/repository/files/$FilePath?ref=$Branch" -Method Get -ErrorAction SilentlyContinue
 
-    # Send the file directly as it exists to GitLab using the API
-    $response = Invoke-RestMethod -Method PUT -Uri $apiUri -Headers @{
-        "PRIVATE-TOKEN" = $GitLabToken
-    } -Body @{
-        "branch" = $BranchName;
-        "file_path" = $fileName;
-        "commit_message" = $commitMessage;
-    }
-
-    # Log the result
-    if ($response) {
-        Write-Host "Successfully backed up $fileName to branch $BranchName."
+    if ($Response -and $Response.file_path) {
+        # File exists, use PUT to update
+        Write-Host "Updating existing file: $FilePath"
+        Invoke-RestMethod -Uri "$RepoURL/api/v4/projects/$ProjectID/repository/commits" `
+            -Method Put `
+            -Headers @{ "PRIVATE-TOKEN" = $PrivateToken } `
+            -Form @{ "branch" = $Branch;
+                     "commit_message" = $CommitMessage;
+                     "actions[0][action]" = "update";
+                     "actions[0][file_path]" = $FilePath;
+                     "actions[0][content]" = [System.IO.File]::ReadAllText($FilePath) }
     } else {
-        Write-Host "Failed to back up $fileName to branch $BranchName."
+        # File does not exist, use POST to create
+        Write-Host "Creating new file: $FilePath"
+        Invoke-RestMethod -Uri "$RepoURL/api/v4/projects/$ProjectID/repository/commits" `
+            -Method Post `
+            -Headers @{ "PRIVATE-TOKEN" = $PrivateToken } `
+            -Form @{ "branch" = $Branch;
+                     "commit_message" = $CommitMessage;
+                     "actions[0][action]" = "create";
+                     "actions[0][file_path]" = $FilePath;
+                     "actions[0][content]" = [System.IO.File]::ReadAllText($FilePath) }
     }
 }
+
+Write-Host "Backup completed successfully for all CSV files on branch: $Branch"
