@@ -24,6 +24,13 @@ Get-ChildItem -Path . -Filter "*.csv" | ForEach-Object {
     $CheckUrl = "$RepoURL/api/v4/projects/$ProjectID/repository/files/$FileName?ref=$Branch"
     $Response = Invoke-RestMethod -Headers $Headers -Uri $CheckUrl -Method Get -ErrorAction SilentlyContinue
 
+    # Rename the file if it already exists in the repository
+    $FileName = if ($Response -and $Response.file_path) {
+        "new_" + $FileName
+    } else {
+        $FileName
+    }
+
     # Determine Action
     $Action = if ($Response -and $Response.file_path) { "update" } else { "create" }
     Write-Host "$Action file: $FileName"
