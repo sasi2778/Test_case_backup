@@ -1,0 +1,98 @@
+$ErrorActionPreference = "Stop"
+
+# Log file
+$LogPath = "C:\backup_debug_log.txt"
+"=== Nectar CX Backup Script Started ===" | Out-File -FilePath $LogPath -Encoding utf8
+
+# Static Variables
+$api_url = "{{ lookup('env','CI_REGISTRY') }}/api/v4/projects/43328313/repository/commits"
+$CommitMessage = "backup for nectar {{ lookup('env','nectar_cx_version') }} $(Get-Date -Format 'yyyy-MM-dd') [skip ci]"
+$CsvDir = "F:\Nectar\CXA\liferay-ce-portal-{{ lookup('env','liferay_version') }}\test-case-data"
+$PrivateToken = "{{ lookup('env','NECTAR_BACKUP_PAT') }}"
+$Branch = "test-case-data-{{ lookup('env','ENVIRONMENT') }}"
+
+# Log resolved values
+"CSV Dir: $CsvDir" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+"Branch: $Branch" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+"Token length: $($PrivateToken.Length)" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+
+# Validate CSV directory exists
+if (-not (Test-Path $CsvDir)) {
+    "ERROR: Directory $CsvDir not found. Exiting." | Out-File -FilePath $LogPath -Encoding utf8 -Append
+    exit 1
+}
+
+# Navigate to the CSV directory
+Set-Location -Path $CsvDir
+"Current directory: $(Get-Location)" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+
+# Get the list of CSV files in the GitLab repository
+$treeUrl = "{{ api_url | replace('/commits', '/tree') }}?ref=$Branch&path=/"
+try {
+    $repoFiles = Invoke-RestMethod -Uri $treeUrl -Headers @{ "PRIVATE-TOKEN" = $PrivateToken } -Method Get
+    "Fetched repo files from GitLab" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+}
+catch {
+    "Failed to fetch repo files: $($_.Exception.Message)" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+    exit 1
+}
+
+$repoCsvFiles = $repoFiles | Where-Object { $_.type -eq "blob" -and $_.name -like "*.csv" } | ForEach-Object { $_.name }
+$localCsvFiles = Get-ChildItem -Path . -Filter "*.csv" | ForEach-Object { $_.Name }
+
+$actions = @()
+
+# Create or Update files
+Get-ChildItem -Path . -Filter "*.csv" | ForEach-Object {
+    $filePath = $_.Name
+    $fileContent = [System.Text.Encoding]::UTF8.GetString([System.IO.File]::ReadAllBytes($_.FullName))
+    if ($repoCsvFiles -contains $filePath) {
+        $actionType = "update"
+    } else {
+        $actionType = "create"
+    }
+    $actions += @{
+        action     = $actionType
+        file_path = $filePath
+        content    = $fileContent
+    }
+    "$actionType: $filePath" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+}
+
+# Delete files no longer present
+$filesToDelete = $repoCsvFiles | Where-Object { $_ -notin $localCsvFiles }
+foreach ($file in $filesToDelete) {
+    $actions += @{
+        action     = "delete"
+        file_path = $file
+    }
+    "delete: $file" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+}
+
+# Commit if needed
+if ($actions.Count -gt 0) {
+    $payload = @{
+        branch         = $Branch
+        commit_message = $CommitMessage
+        actions        = $actions
+    } | ConvertTo-Json -Depth 10
+
+    try {
+        $response = Invoke-RestMethod -Uri $api_url `
+            -Headers @{ "PRIVATE-TOKEN" = $PrivateToken } `
+            -Method Post `
+            -Body $payload `
+            -ContentType "application/json" `
+            -ErrorAction Stop
+
+        "Backup completed: files committed to branch $Branch" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+    }
+    catch {
+        "Commit failed: $($_.Exception.Message)" | Out-File -FilePath $LogPath -Encoding utf8 -Append
+        exit 1
+    }
+} else {
+    "No changes to commit." | Out-File -FilePath $LogPath -Encoding utf8 -Append
+}
+
+"=== Script Ended ===" | Out-File -FilePath $LogPath -Encoding utf8 -Append
