@@ -1,0 +1,80 @@
+---
+- name: Allow port 8080 in the firewall
+  firewalld:
+    port: 8080/tcp
+    permanent: true
+    state: enabled
+    immediate: yes
+
+- name: Enable linger for testautomation user
+  command: "loginctl enable-linger testautomation"
+
+- name: Install podman and container tools
+  dnf:
+    name:
+      - podman
+      - "@container-tools"
+    state: present
+
+- name: Install podman-compose via pip
+  pip:
+    name: podman-compose
+    executable: pip3
+    extra_args: --user
+
+- name: Create middleware deployment directory
+  file:
+    path: /var/middleware
+    state: directory
+    owner: testautomation
+    group: testautomation
+    mode: '0755'
+
+- name: Copy deployment files
+  copy:
+    src: deployment/
+    dest: /var/middleware/deployment/
+    owner: testautomation
+    group: testautomation
+    mode: '0755'
+
+- name: Create container storage config
+  become_user: testautomation
+  shell: |
+    mkdir -p ~/.config/containers
+    cp /var/middleware/deployment/storage.conf ~/.config/containers
+
+- name: Set ownership on container storage
+  file:
+    path: /var/lib/containers
+    state: directory
+    recurse: yes
+    owner: testautomation
+    group: testautomation
+
+- name: Copy systemd unit files
+  become_user: testautomation
+  shell: |
+    mkdir -p ~/.config/systemd/user
+    cp /var/middleware/deployment/systemd/*.service ~/.config/systemd/user/
+
+- name: Create podman network
+  become_user: testautomation
+  command: podman network create middleware_default
+
+- name: Login to container registry
+  become_user: testautomation
+  command: >
+    podman login registry.gitlab.com -u "{{ gitlab_user }}" -p "{{ gitlab_pass }}"
+
+- name: Enable middleware systemd services
+  become_user: testautomation
+  systemd:
+    name: "{{ item }}"
+    enabled: yes
+    scope: user
+  loop:
+    - middleware_api_1.service
+    - middleware_zephyr-connector_1.service
+    - middleware_nectar-connector_1.service
+    - middleware_test-complete-connector_1.service
