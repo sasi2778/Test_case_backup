@@ -1,0 +1,17 @@
+[Unit]
+Description=Middleware API Container
+After=network.target
+
+[Service]
+ExecStart=/usr/bin/podman run --rm --name middleware_api_1 \
+  --network=middleware_default \
+  -p 8080:8080 \
+  registry.gitlab.com/{{ gitlab_namespace }}/{{ image_name }}:{{ image_tag }}
+
+ExecStop=/usr/bin/podman stop middleware_api_1
+
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
