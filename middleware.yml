@@ -1,0 +1,31 @@
+- name: Log in to GitLab Container Registry
+  containers.podman.podman_login:
+    username: "{{ lookup('env', 'GITLAB_USER') }}"
+    password: "{{ lookup('env', 'GITLAB_PAT') }}"
+    registry: "registry.gitlab.com"
+
+- name: Create Podman network if missing
+  containers.podman.podman_network_info:
+    name: middleware_default
+  register: podman_network_check
+  ignore_errors: true
+  changed_when: false
+
+- name: Create podman network
+  command: podman network create middleware_default
+  when: podman_network_check is failed
+
+- name: Deploy systemd service file for Middleware API
+  ansible.builtin.template:
+    src: "middleware_api_1.service.j2"
+    dest: "~/.config/systemd/user/middleware_api_1.service"
+
+- name: Start and enable the Middleware API service
+  ansible.builtin.systemd:
+    name: "middleware_api_1.service"
+    enabled: yes
+    scope: user
+    state: started
+    daemon_reload: yes
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ uid }}"
