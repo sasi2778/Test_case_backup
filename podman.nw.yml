@@ -1,0 +1,12 @@
+
+
+    - name: Ensure Podman network exists
+      containers.podman.podman_network:
+        name: "{{ middleware_network_name }}"
+        state: present
+
+    - name: Log in to GitLab Container Registry
+      containers.podman.podman_login:
+        registry: "{{ gitlab_registry }}"
+        username: "{{ lookup('env', gitlab_user_env_var) }}"
+        password: "{{ lookup('env', gitlab_pat_env_var) }}"
